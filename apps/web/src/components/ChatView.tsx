@@ -52,12 +52,14 @@ import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { serverConfigQueryOptions, serverQueryKeys } from "~/lib/serverReactQuery";
 
 import { isElectron } from "../env";
+import { resolveComposerPathMenuEntries } from "../composer-path-menu";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import {
   type ComposerSlashCommand,
   type ComposerTrigger,
   type ComposerTriggerKind,
   detectComposerTrigger,
+  detectComposerTriggerFromSnapshot,
   expandCollapsedComposerCursor,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
@@ -1277,7 +1279,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
       limit: 80,
     }),
   );
-  const workspaceEntries = workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES;
+  const workspaceEntries = resolveComposerPathMenuEntries({
+    query: pathTriggerQuery,
+    isDebouncing: composerPathQueryDebouncer.state.isPending,
+    isFetching: workspaceEntriesQuery.isFetching,
+    isLoading: workspaceEntriesQuery.isLoading,
+    entries: workspaceEntriesQuery.data?.entries ?? EMPTY_PROJECT_ENTRIES,
+  });
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
@@ -2930,7 +2938,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
 
   const onChangeActivePendingUserInputCustomAnswer = useCallback(
-    (questionId: string, value: string, nextCursor: number, cursorAdjacentToMention: boolean) => {
+    (
+      questionId: string,
+      value: string,
+      nextCursor: number,
+      cursorAdjacentToMention: boolean,
+      nextExpandedCursor: number,
+    ) => {
       if (!activePendingUserInput) {
         return;
       }
@@ -2949,7 +2963,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerTrigger(
         cursorAdjacentToMention
           ? null
-          : detectComposerTrigger(value, expandCollapsedComposerCursor(value, nextCursor)),
+          : detectComposerTriggerFromSnapshot({
+              value,
+              cursor: nextCursor,
+              expandedCursor: nextExpandedCursor,
+            }),
       );
     },
     [activePendingUserInput],
@@ -3311,23 +3329,30 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activePendingProgress?.activeQuestion, activePendingUserInput, setPrompt],
   );
 
-  const readComposerSnapshot = useCallback((): { value: string; cursor: number } => {
+  const readComposerSnapshot = useCallback((): {
+    value: string;
+    cursor: number;
+    expandedCursor: number;
+  } => {
     const editorSnapshot = composerEditorRef.current?.readSnapshot();
     if (editorSnapshot) {
       return editorSnapshot;
     }
-    return { value: promptRef.current, cursor: composerCursor };
+    return {
+      value: promptRef.current,
+      cursor: composerCursor,
+      expandedCursor: expandCollapsedComposerCursor(promptRef.current, composerCursor),
+    };
   }, [composerCursor]);
 
   const resolveActiveComposerTrigger = useCallback((): {
-    snapshot: { value: string; cursor: number };
+    snapshot: { value: string; cursor: number; expandedCursor: number };
     trigger: ComposerTrigger | null;
   } => {
     const snapshot = readComposerSnapshot();
-    const expandedCursor = expandCollapsedComposerCursor(snapshot.value, snapshot.cursor);
     return {
       snapshot,
-      trigger: detectComposerTrigger(snapshot.value, expandedCursor),
+      trigger: detectComposerTriggerFromSnapshot(snapshot),
     };
   }, [readComposerSnapshot]);
 
@@ -3415,13 +3440,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
       workspaceEntriesQuery.isFetching);
 
   const onPromptChange = useCallback(
-    (nextPrompt: string, nextCursor: number, cursorAdjacentToMention: boolean) => {
+    (
+      nextPrompt: string,
+      nextCursor: number,
+      cursorAdjacentToMention: boolean,
+      nextExpandedCursor: number,
+    ) => {
       if (activePendingProgress?.activeQuestion && activePendingUserInput) {
         onChangeActivePendingUserInputCustomAnswer(
           activePendingProgress.activeQuestion.id,
           nextPrompt,
           nextCursor,
           cursorAdjacentToMention,
+          nextExpandedCursor,
         );
         return;
       }
@@ -3431,10 +3462,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
       setComposerTrigger(
         cursorAdjacentToMention
           ? null
-          : detectComposerTrigger(
-              nextPrompt,
-              expandCollapsedComposerCursor(nextPrompt, nextCursor),
-            ),
+          : detectComposerTriggerFromSnapshot({
+              value: nextPrompt,
+              cursor: nextCursor,
+              expandedCursor: nextExpandedCursor,
+            }),
       );
     },
     [

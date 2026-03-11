@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   detectComposerTrigger,
+  detectComposerTriggerFromSnapshot,
   expandCollapsedComposerCursor,
   isCollapsedCursorAdjacentToMention,
   parseStandaloneComposerSlashCommand,
@@ -54,6 +55,25 @@ describe("detectComposerTrigger", () => {
       query: "pl",
       rangeStart: 0,
       rangeEnd: text.length,
+    });
+  });
+});
+
+describe("detectComposerTriggerFromSnapshot", () => {
+  it("uses the editor expanded cursor for revisited @tokens", () => {
+    const text = "@HEAD please review @src/components before sending";
+
+    expect(
+      detectComposerTriggerFromSnapshot({
+        value: text,
+        cursor: 31,
+        expandedCursor: "@HEAD please review @src/components".length,
+      }),
+    ).toEqual({
+      kind: "path",
+      query: "src/components",
+      rangeStart: "@HEAD please review ".length,
+      rangeEnd: "@HEAD please review @src/components".length,
     });
   });
 });
